@@ -1,6 +1,8 @@
 require 'rubygems'
 require 'rake'
 
+task :default => :test
+load File.expand_path('../bin/blavoshost', __FILE__)
 begin
   require 'jeweler'
   Jeweler::Tasks.new do |gem|
@@ -10,44 +12,40 @@ begin
     gem.email = "jerrod@indierockmedia.com"
     gem.homepage = "http://github.com/jerrod/blavoshost"
     gem.authors = ["Jerrod Blavos"]
-    gem.add_development_dependency "thoughtbot-shoulda", ">= 0"
-    # gem is a Gem::Specification... see http://www.rubygems.org/read/chapter/20 for additional settings
+    gem.executables = ['blavoshost']
   end
   Jeweler::GemcutterTasks.new
 rescue LoadError
   puts "Jeweler (or a dependency) not available. Install it with: gem install jeweler"
 end
 
-require 'rake/testtask'
-Rake::TestTask.new(:test) do |test|
-  test.libs << 'lib' << 'test'
-  test.pattern = 'test/**/test_*.rb'
-  test.verbose = true
+
+
+
+me = "\e[35mvhost\e[0m "
+
+require 'jeweler'
+Jeweler::Tasks.new do |s|
+  s.authors = ['Chip Malice']
+  s.description = 'manage vhosts from the commandline'
+  s.email = 'chip.malice@gmail.com'
+  s.executables = ['vhost']
+  s.files =  FileList['Rakefile', '[A-Z]*(?:\.md)?', '{bin,doc,lib,test,proto}/**/*']
+  s.homepage = 'http://vhost.hipeland.org'
+  s.name = 'hipe-vhost'
+  s.rubyforge_project = 'hipe-vhost'
+  s.require_paths = ['lib'] # annoying requirement
+  s.summary = 'a ruby commandline app to add vhosts'
 end
 
-begin
-  require 'rcov/rcovtask'
-  Rcov::RcovTask.new do |test|
-    test.libs << 'test'
-    test.pattern = 'test/**/test_*.rb'
-    test.verbose = true
-  end
-rescue LoadError
-  task :rcov do
-    abort "RCov is not available. In order to run rcov, you must: sudo gem install spicycode-rcov"
-  end
-end
 
-task :test => :check_dependencies
-
-task :default => :test
-
-require 'rake/rdoctask'
-Rake::RDocTask.new do |rdoc|
-  version = File.exist?('VERSION') ? File.read('VERSION') : ""
-
-  rdoc.rdoc_dir = 'rdoc'
-  rdoc.title = "blavoshost #{version}"
-  rdoc.rdoc_files.include('README*')
-  rdoc.rdoc_files.include('lib/**/*.rb')
+desc "#{me}hack turns the installed gem into a symlink to this directory"
+task :hack do
+  gem 'hipe-vhost', '>= 0'
+  bin_path = Gem.bin_path('hipe-vhost', 'vhost')
+  kill_path = File.dirname(File.dirname(bin_path))
+  new_name  = File.dirname(kill_path)+'/ok-to-erase-'+File.basename(kill_path)
+  FileUtils.mv(kill_path, new_name, :verbose => 1)
+  this_path = File.dirname(__FILE__)
+  FileUtils.ln_s(this_path, kill_path, :verbose => 1)
 end

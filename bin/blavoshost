@@ -1,0 +1,815 @@
+#!/usr/bin/env ruby
+require 'rubygems'
+require 'json'
+require 'open3'
+require 'ostruct'
+require 'optparse'
+require 'fileutils'
+require 'ruby-debug'
+
+module Hipe
+  module Vhost
+    HardCoded = OpenStruct.new(
+      :execs       => ['apachectl','apache2ctl'],
+      :httpd_conf  => ['/etc/apache2/apache2.conf',
+                       '/etc/apache2/httpd.conf'],
+      :docroots    => '~/Sites',
+      :vhost_confs => '/etc/apache2/sites-enabled/',
+      :etc_hosts   => '/etc/hosts'
+    )
+  end
+end
+
+
+module Hipe
+
+  # Every exception thrown directly by this library will be a kind of
+  # Hipe::Fail. Subclasses are things like UserFail, EnvFail and
+  # PermissionFail, which are exceptions resulting from something
+  # the user did wrong, something in the environment that won't permit us
+  # to carry out a request, or a permissions issue with the filesystem
+  # or process space; respectively.  The implementing client application will
+  # usually want to catch these and recover gracefully from them.
+
+  # There are corresponding modules for each of these exception classes
+  # (a UserFail is a kind of UserFailey (the adjectivial form) for example),
+  # so we can enhance exceptions thrown from other libraries as well,
+  # and re-throw them as that original exception object with its stack intact.
+  # All exception classes in this library end in 'Fail', and their
+  # corresponding modules end in 'Failey' (the adjective form.)
+  # So note that an exception caught from another library and 'enhanced'
+  # by this one will not be a kind of Hipe::Fail, only a kind of Hipe::Failey.
+
+  # So to have your bases covered, rescue Hipe::Failey or the subset of
+  # Hipe::Failies that you care about rescuing.
+
+  module Failey; end
+  module EnvFailey; include Failey end
+  module UserFailey; include Failey end
+  module PermissionFailey; include UserFailey end
+
+  class Fail < RuntimeError; include Failey end
+  class UserFail < Fail; include UserFailey end
+  class EnvFail < Fail; include EnvFailey end
+  class PermissionFail < UserFail; include PermissionFailey end
+
+  # AsciiFormattey last seen in f2fa2
+
+  # this guy was moved into ack-lite-parse and modified. if you
+  # want any more features, start with that one and note it there
+  module CliLitey
+    # if this thing exceeds 30 lines of code use hipe-core/interfacey
+    def cli_run(argv)
+      return help_text unless argv[0] && @actions[argv[0]]
+      action = argv.shift
+      action = help if (['-h','--help'].include?(action))
+      meth = action
+      send(meth, argv)
+    end
+
+    def program_name
+      File.basename $PROGRAM_NAME
+    end
+
+    def help(args)
+      help_text+"\n\n"
+    end
+  end
+
+  module FileyCoyote
+    def self.writable!(path)
+      if ! File.writable?(path)
+        raise PermissionFail.new("Can't write to #{path}")
+      end
+      @path = path
+      nil
+    end
+    def writable!
+      FileyCoyote.writable!(@path)
+      self
+    end
+    def fileize str
+      FileyCoyote.fileize str
+    end
+    def self.fileize str
+      str.gsub(/[^-\.a-zA-Z0-9]/,'')
+    end
+    def back_that_asset_up! orig_path
+      dry = respond_to?(:dry_run?) ? dry_run? : false
+      append = Time.now.strftime('%Y-%m-%d_%H:%M:%S')
+      new_name = %{#{orig_path}.bak.#{append}}
+      i = 1
+      while File.exist? new_name  # very unlikely
+        new_name = %{#{orig_path}.bak.#{append}.#{i}}
+        i += 1
+      end
+      begin
+        FileUtils.copy_file orig_path, new_name unless dry
+      rescue Errno::EACCES => e
+        e.extend OpenStructey
+        e.extend PermissionFailey
+        e.filename = new_name
+        raise e
+      end
+      new_name
+    end
+  end
+
+  module DryRunney
+    def dry_run= val
+      @dry_run = val
+    end
+    def dry_run?
+      @dry_run
+    end
+    alias_method :noop, :dry_run?
+    def dry_run!
+      @dry_run = true
+    end
+    def report
+      wtf = @report ||= []
+      wtf
+    end
+  end
+
+  module OpenStructey
+    def self.extend_object(base)
+     base.instance_eval do
+        @__info = {}
+     end
+     super
+    end
+    def method_missing name, *args, &blah
+      if /^(.+)=$/ =~ name.to_s
+        @__info[$1.to_sym] = args[0]
+      else
+        @__info[name.to_sym]
+      end
+    end
+  end
+
+  module Systematic
+    def sistum command
+      stdin, stdout, stderr = Open3.popen3 command
+      err = stderr.read; out = stdout.read
+      raise Fail.new(err) if "" != err
+      out.chop
+    end
+
+    def sistum2 command
+      stdin, stdout, stderr = Open3.popen3 command
+      err = stderr.read; out = stdout.read
+      [out.chop,err.chop]
+    end
+  end
+
+  module Templatesimal
+    # the last thing the world needs is...
+
+    NamePattern = /\{\{([^\}]+)\}\}/ # e.g. "{{title}}"
+
+    def self.[] str
+      str.extend self
+      str.init_templatesimal
+      str
+    end
+
+    def init_templatesimal
+      names = scan(NamePattern).map{|x| x[0]}.uniq
+      meta = class << self; end
+      names.each do |name|
+        unless respond_to?(name)
+          meta = class << self; self; end
+          meta.send(:define_method, :"#{name}=") do |x|
+            template_replace(name, x)
+          end
+        end
+      end
+    end
+
+    def template_replace name, value
+      gsub! "{{#{name}}}", value
+    end
+
+    def substitute! hash
+      hash.each{|pair| template_replace(pair[0],pair[1]) }
+      self
+    end
+  end
+
+  class AsciiTableLite
+    #
+    # For now this is the official home of this here in vhost.
+    # This is a simplified version of hipe-core/struct/table
+    # Note any other projects that copy paste this here:
+    #   [none]
+    #
+
+    def initialize(*cols)
+      @cols = cols
+      @pipe = '|'
+      @cona = '+'
+      @rule = '-'
+      @rulesep = @rule * 3
+      @sep = " #{@pipe} "
+    end
+
+    def render rows
+      @rows = rows
+      @maxes = Hash[*@cols.map{|x|[x, x.to_s.length]}.flatten]
+      prerendereds = []
+      rows.each do |info|
+        preprender = OpenStruct.new
+        @cols.each do |col|
+          cel = info.send(col).to_s
+          preprender.send("#{col}=",cel)
+          if (@maxes[col].nil? || cel.length > @maxes[col])
+            @maxes[col] = cel.length
+          end
+        end
+        prerendereds.push preprender
+      end
+      @lines = [go_sep]
+      @lines.push go_headers
+      @lines.push go_sep
+      prerendereds.each do |info|
+        @lines.push go_row info
+      end
+      @lines.push go_sep
+      @lines * "\n"
+    end
+
+    ## private
+
+    def go_sep
+      "#{@cona}#{@rule}"<<
+      "#{@cols.map{|x| @rule * @maxes[x]} * @rulesep }"<<
+      "#{@rule}#{@cona}"
+    end
+
+    def go_headers
+      "#{@pipe} "<<
+      (@cols.map{|x|x.to_s.ljust(@maxes[x])}* @sep)<<
+      " #{@pipe}"
+    end
+
+    def go_row row
+      "#{@pipe} "<<
+      (@cols.map{|x|row.send(x).to_s.ljust(@maxes[x])}*@sep)<<
+      " #{@pipe}"
+    end
+  end
+
+  class UnitOfWork
+    include DryRunney
+    attr_reader :describe
+    def initialize(desc, &block)
+      @describe = desc
+      @block = block
+    end
+    def empty?
+      @block.nil?
+    end
+    def commit
+      @block.call(self) if @block
+    end
+  end
+
+  module UnitsOfWork
+    def add_unit_of_work(*args, &block)
+      units_of_work.push UnitOfWork.new(*args,&block)
+    end
+    def units_of_work
+      @units_of_work ||= []
+    end
+    def run_units_of_work dry_run=false
+      num_done = 0
+      units_of_work.each do |unit|
+        if unit.empty?
+          puts unit.describe
+        else
+          unit.dry_run = dry_run
+          unit.commit
+          puts unit.describe
+          unit.report.each do |line|
+            puts "  #{line}"
+          end
+          num_done += 1
+        end
+      end
+      num_done
+    end
+  end
+
+  module Vhost
+
+    class Fail < RuntimeError; end
+
+    class Cli
+      include Hipe::CliLitey, Hipe::Systematic, Hipe::UnitsOfWork
+      Table = Hipe::AsciiTableLite
+
+      def initialize
+        @actions = {'help'=>1,'explain'=>1,'hosts'=>1,'confs'=>1,
+          'dump' =>1, 'list'=>1, 'add'=>1
+        }
+        @path = {}
+        %w(docroots vhost_confs etc_hosts).each do |guy|
+          @path[guy.to_sym] = File.expand_path HardCoded.send(guy)
+        end
+        these = HardCoded.httpd_conf
+        one = these.detect{ |x| File.exist?(x) }
+        one or fail("not found: #{these.join(', ')}")
+        @path[:httpd_conf] = one
+        get_orientated_with_your_environment
+        @path = OpenStruct.new(@path)
+      end
+
+      def run argv
+        begin
+          cli_run argv
+        rescue PermissionFailey => e
+          return "#{e.message} - do you need to run this with sudo?"
+        rescue EnvFailey, UserFailey => e
+          return "#{e.message}"
+        end
+      end
+
+      def explain args; HardCoded.explain end
+
+      def help_text
+        HardCoded.help.clone.substitute!(:program_name => program_name)
+      end
+
+      ###### command implementations
+
+      #def explain argv; HardCoded.explain end
+
+      def hosts argv
+        rows = parse_hosts.sort!{|x,y| x.name <=> y.name }
+        Table.new(:ip, :name).render(rows)
+      end
+
+      def confs argv
+        rows = parse_confs.sort!{|x,y| x.server_name <=> y.server_name }
+        Table.new(:server_name,:document_root).render(rows)
+      end
+
+      def dump argv
+        parse = parse_dump_vhosts
+        puts Table.new(:server_name, :port, :conf_path).
+          render(parse.entries)
+        puts "\n"
+        puts Table.new(:missing_docroot).
+          render(parse.missing_docroots)
+        ''
+      end
+
+      def list argv
+        infos = master.values.sort!{|x,y| x.host <=> y.host}
+        Table.new(
+          :host, :host_ok, :ip, :port, :docroot, :docroot_ok, :conf
+        ).render(infos)
+      end
+
+      def add argv
+        opts = OpenStruct.new(
+          :dry_run => false,
+          :docroots => @path.docroots
+        )
+        parser = OptionParser.new do |o|
+          o.on('-n','--dry-run'){ opts.dry_run = true; }
+          o.on('-d','--docroots PATH') do |v|
+            @path.docroots = File.expand_path(v)
+          end
+          o.on('-h','--help') do
+            return "Usage: #{program_name} #{Cli.add_syntax}"
+          end
+        end
+        begin
+          parser.parse! argv
+        rescue OptionParser::ParseError => e
+          puts e.message
+          puts "Usage: #{program_name} #{Cli.add_syntax}"
+          return ''
+        end
+        errs = [];
+        if (argv.length == 0)
+          errs << "too few argments.  expecting one."
+        elsif (argv.length > 1)
+          errs << "too many arguments. expecting one."
+        elsif (! (argv[0].to_s =~ EtcHostsProxy::OkNameRe))
+          errs << "invalid name for a domain(?): #{argv[0].inspect}"
+        end
+        if errs.length > 0
+          return ((errs * "\n") << "\nUsage: #{Cli.add_syntax}")
+        end
+        new_hostname = argv[0]
+        _add new_hostname, opts
+      end
+
+      ###### top secret implementationz
+
+      def self.add_syntax
+        "add [-n|--dry-run] [-d|--docroots <path>] <host>"
+      end
+
+      def _add host, opts
+        item = master[host]  # might be empty object
+        units_of_work.clear
+        go_etc_hosts   item, host
+        go_config      item, host
+        go_html        item, host
+        num = run_units_of_work opts.dry_run
+        if (num==0)
+          puts "nothing to be done for #{host}."
+        else
+          puts "if this wasn't a dry run, you could restart apache with:"
+          puts "  #{@path.apachectl} graceful"
+          puts "and go to:"
+          puts "  http://#{host}/index.html"
+        end
+        'done.'
+      end
+
+      def go_etc_hosts item, host
+        if 'ok'==item.host_ok
+          add_unit_of_work("#{@path.etc_hosts} ok for #{host}")
+        else
+          hosts = EtcHostsProxy.new(@path.etc_hosts).writable!
+          add_unit_of_work("add line to #{@path.etc_hosts}:") do |unit|
+            hosts.dry_run = unit.dry_run?
+            hosts.add! host
+            unit.report.concat hosts.report
+          end
+        end
+      end
+
+      def go_config item, host
+        if item.conf
+          add_unit_of_work("config ok for #{host}")
+        else
+          doc_root = File.join(@path.docroots, FileyCoyote.fileize(host))
+          confs = VhostFileMakerPro.new(apache_conf_proxy.sites_enabled_path)
+          add_unit_of_work("add config file for #{host}:") do |unit|
+            confs.dry_run = unit.dry_run?
+            confs.add! host, doc_root
+            unit.report.concat confs.report
+          end
+        end
+      end
+
+      def go_html item, host
+        if 'ok'==item.docroot_ok
+          add_unit_of_work("#{@path.docroots} ok for #{host}")
+        else
+          docroot = DocRootProxy.new(@path.docroots).writable!
+          add_unit_of_work("add stub website to #{@path.docroots}:")do |unit|
+            docroot.dry_run = unit.dry_run?
+            docroot.make_stub_site(host)
+            unit.report.concat docroot.report
+          end
+        end
+      end
+
+      def parse_hosts
+        EtcHostsProxy.new(@path.etc_hosts).entries
+      end
+
+      def parse_confs
+        conf = apache_conf_proxy
+        confs = conf.sites_enabled_confs
+        confs.delete_if{|x| x.document_root == '' }
+        confs.sort!{|x,y| x.server_name <=> y.server_name}
+      end
+
+      def apache_conf_proxy
+        @apache_conf_proxy ||= ApacheConfProxy.new @path.httpd_conf
+      end
+
+      def parse_dump_vhosts
+        cmd = "#{@path.apachectl} -t -D DUMP_VHOSTS"
+        out,err = sistum2(cmd)
+	lines = out.split("\n");
+	lines.concat err.split("\n");
+        # on ubuntu, we get 'Syntax OK' in out, and details in err
+        # on osx, we get empty out and everything in err
+        p = DumpParse.new lines.join("\n") # @todo plan on having this crap out a lot
+        p
+      end
+
+      def get_orientated_with_your_environment
+        list = HardCoded.execs
+        infos = list.map do |executable|
+          OpenStruct.new(
+            'which' => sistum("which #{executable}")
+          )
+        end
+        infos.delete_if{|x| ""==x.which}
+        case infos.length
+          when 0:
+            raise Fail.new("#{sistum('whoami')} has neither "<<
+              (list * ' nor ') << "within his or her executable path."<<
+              "  I can be of no help to you."
+            )
+          when 1: # fallthru
+          else
+            raise Fail.new("#{sistum('whoami')} has all of these in"<<
+              " his or her path: "<< (infos.map(&:which) * ' and ')<<'.'<<
+              "  As this is a zero-configuration jobbie, I have no idea"<<
+              " what to do."
+            )
+        end
+        @path[:apachectl] =  infos[0].which
+      end
+
+      def master
+        hosts = parse_hosts
+        confs = parse_confs
+        dumps = parse_dump_vhosts  # entries, missing_doctroots
+        missings = Hash[*
+          dumps.missing_docroots.each.map{|x| [x.missing_docroot, 1]}.flatten
+        ]
+        master = Hash.new(){|h,k| h[k] = OpenStruct.new(:host=>k) }
+        hosts.each do |host|
+          item = master[host.name]
+          item.ip = host.ip
+          item.host_ok = 'ok'
+        end
+        confs.each do |conf|
+          item = master[conf.server_name]
+          item.docroot = conf.document_root
+          item.docroot_ok = (missings[conf.document_root]) ? 'missing' : 'ok'
+        end
+        dumps.entries.each do |dump|
+          item = master[dump.server_name]
+          item.conf = dump.conf_path
+          item.port = dump.port
+        end
+        master
+      end
+    end # Cli
+
+    class DumpParse
+      attr_reader :missing_docroots, :entries
+      def initialize str
+        lines = str.split("\n")
+        @missing_docroots = []
+        infos = []
+        lines.each do |line|
+          case line
+            when /^Warning: DocumentRoot \[(.+)\] does not exist$/:
+              @missing_docroots.push OpenStruct.new(:missing_docroot => $1)
+            when /^.*is a NameVirtualHost$/: #skip
+            when /^wildcard NameVirtualHosts and _default_ servers: *$/: #skip
+            when "VirtualHost configuration:": # skip
+            when /^ {9}default server (.+) \((.+)\:\d+\)$/:
+              infos.push OpenStruct.new(
+                :server_name => $1, :conf_path => $2, :port => nil
+              )
+            when /^ {9}port ([^ ]+) namevhost (.+) \((.+)\:\d+\)$/:
+              infos.push OpenStruct.new(
+                :server_name => $2, :conf_path => $3, :port => $1
+              )
+            when /^Syntax OK$/: #skip for now end
+            when /^httpd: Could not reliably determine/: #skip
+            when /^\*:(\d{4}) +([^ ]+) +\((.+)\:\d+\)$/ 
+              infos.push OpenStruct.new(
+                :server_name => $2, :conf_path => $3, :port => $1
+              )
+            else
+              raise Fail.new("we suck: parse fail:\n#{line.inspect}")
+          end
+        end
+        @entries = infos
+      end
+    end
+
+    class ApacheConfProxy
+      include DryRunney
+      SitesEnabledRe = %r|^ *Include +([^\n]*sites-enabled/?) *$|m
+      # code for pasring the file itself left behind in bf91c
+      def initialize path
+        @path = path
+	if !File.readable?(@path)
+	  raise UserFail.new("no such apache conf file or not readable: #{@path}")
+        end
+        @contents = File.read path
+      end
+
+      # this project it is hard coded to expect that there is
+      # only one such entry in the file
+      def sites_enabled_path
+        arr = @contents.scan(SitesEnabledRe).map{|x| x[0]}
+        case arr.length
+          when 0:
+            `sudo bash -c 'sudo echo "Include /private/etc/apache2/sites-enabled/*.conf" >> /etc/apache2/httpd.conf'`
+            `sudo bash -c 'sudo mkdir /private/etc/apache2/sites-enabled '`
+            return '/private/etc/apache2/sites-enabled/'
+          when 1: arr[0]
+          else arr
+        end
+      end
+
+      def sites_enabled_confs
+        path1 = sites_enabled_path
+        paths = Dir[File.join(path1,'*.conf')]
+        paths.map do |path|
+          VhostConfProxy.new(path)
+        end
+      end
+    end
+
+    class VhostFileMakerPro
+      include DryRunney
+      def initialize path
+        unless File.directory? path
+          raise EnvFail.new "it's not exist: #{path}"
+        end
+        unless File.writable? path
+          raise PermissionFail.new "not writable: #{path}"
+        end
+        @path = path
+      end
+      def add! host, doc_root
+        path = File.join(@path, "#{host}.conf")
+        if File.exist? path
+          report << "File already existed: #{path}"
+        else
+          contents = HardCoded.vhost_stuff.clone
+          contents.doc_root = doc_root
+          contents.host = host
+          unless dry_run?
+            File.open(path,'a+'){|fh|
+              fh.write contents
+            }
+          end
+          report << "write #{path}"
+        end
+        nil
+      end
+    end
+
+    class VhostConfProxy < ApacheConfProxy
+      def initialize *args
+        super(*args)
+        @cache = {}
+      end
+      def document_root
+        _get('DocumentRoot')
+      end
+      def server_name
+        _get('ServerName')
+      end
+      def _get thing
+        @cache[thing] ||= begin
+          re = Regexp.new('^ *'<<Regexp.escape(thing)<<
+          '  *"?([^"]+)"? *$')
+          matches = @contents.scan(re)
+          case matches.length
+            when 0: ""
+            when 1: matches[0][0]
+            else matches.map{|x| x[0]}.join(',')
+          end
+        end
+      end
+    end
+
+    class DocRootProxy
+      include FileyCoyote, DryRunney
+      def initialize path
+        @path = path
+      end
+      def writable!
+        unless File.directory? @path
+          raise EnvFail.new(
+            "docroots directory (the directory to hold your docroot "<<
+            "directory) must exist and be directory: #{@path}")
+        end
+        FileyCoyote.writable! @path
+        self
+      end
+      def make_stub_site host
+        @host = host
+        if (doc_root_exists?)
+          raise Fail.new("already exists: #{doc_root}")
+        end
+        report << "mkdir -m 755 #{doc_root}"
+        FileUtils.mkdir(doc_root,:mode=>0755, :verbose=>false,:noop=>dry_run?)
+        index_html = File.join(doc_root,"index.html")
+        my_new_homepage = HardCoded.web_page.clone
+        my_new_homepage.title = host.gsub(/_|-/,' ')
+        unless dry_run?
+          File.open(index_html,'a+'){|fh| fh.write my_new_homepage }
+        end
+        report << "write #{index_html}"
+        nil
+      end
+      protected
+      def doc_root
+        doc_root = File.join(@path, fileize(@host))
+      end
+      def doc_root_exists?
+        File.exist?(doc_root)
+      end
+    end
+
+    class EtcHostsProxy
+      include DryRunney
+      OkNameRe = /^[-a-z_0-9\.]{1,}$/
+      include FileyCoyote, DryRunney
+      def initialize path
+        raise Fail.new("no: #{path}") unless File.exist?(path)
+        @path = path
+      end
+      def entries
+        File.read(@path).scan(
+          %r{(127\.0\.0\.1)\s+([[:print:]]+)[\s\t]*$}
+        ).map do |match|
+          OpenStruct.new(:ip => match[0], :name => match[1])
+        end
+      end
+      def add! name
+        writable!
+        raise UserFail.new("i don't like your name: #{name.inspect}") unless
+          (name =~ OkNameRe)
+        info = OpenStruct.new
+        info.backed_up = back_that_asset_up! @path
+        report.push "make backup: #{info.backed_up}"
+        File.open(@path,'a+') do |fh|
+          fh.seek(0,IO::SEEK_END)
+          fh.puts %{127.0.0.1 #{name}}
+          info.hostname = name
+          info.ip = '127.0.0.1'
+        end unless dry_run?
+        report.push %{add "#{name}" to #{@path}}
+        info
+      end
+    end
+
+
+    HardCoded.help = Templatesimal[<<-END.gsub(/^ {6}/,'')
+      do some stuff with your apache server virtualhosts.
+
+      Usage: {{program_name}} COMMAND [ARGUMENTS]
+
+      Commands:
+        help         show this screen
+        explain      explains the steps involved in adding a virtualhost
+                     -- you should understand this before using this script
+        hosts        just shows the parsed version of the /etc/hosts file
+        confs        just list the known vhosts per the sites-enabled dir.
+        dump         a tableized version of `apachectl -t -D DUMP_VHOSTS`
+        list         report everything you know about anything
+        #{Cli.add_syntax}
+                      add stuff to all 3 places if necessary
+      END
+    ]
+
+    HardCoded.explain = Templatesimal[<<-END.gsub(/^ {6}/,'')
+        HOW TO ADD A VIRTUALHOST (the really short version):
+        1) `locate httpd.conf` # then jump to the relevant lines at the end
+        2) copy paste a new virtualhost section into the file -or-
+           add such vhost config file into a folder that gets Include'd
+        3) `locate /etc/hosts` # find the right file, it's usually this one
+        4) copy paste your line
+        5) apache(2?)ctl graceful
+    END
+    ]
+
+    HardCoded.web_page = Templatesimal[<<-END.gsub(/^ {6}/,'')
+      <!DOCTYPE html><html><head><title>{{title}}</title>
+      <style type="text/css">
+        body {font-family: sans-serif; background-color: #6cc5c3; }
+        h1,h2,h3,h4,h5 {
+          text-align: center; background-color: #f05921; color: #ffffff;
+          -webkit-border-radius: 8px;    /* for Safari */
+          -moz-border-radius: 8px;       /* for Firefox */
+          padding: .23em;
+          text-shadow:0 0 10px #000000;
+        }
+      </style>
+      </head><body>
+      <h1>welcome to {{title}}</h1>
+      </body></html>
+      END
+    ]
+
+    HardCoded.vhost_stuff = Templatesimal[<<-END.gsub(/^ {6}/,'')
+      <VirtualHost *:80>
+        DocumentRoot "{{doc_root}}"
+        ServerName "{{host}}"
+        <Directory "{{doc_root}}">
+          AllowOverride All
+          Allow from All
+        </Directory>
+      </VirtualHost>
+    END
+    ]
+
+  end # Vhost
+end # Hipe
+
+if File.basename($PROGRAM_NAME) == File.basename(__FILE__)
+  puts Hipe::Vhost::Cli.new.run(ARGV)
+end
