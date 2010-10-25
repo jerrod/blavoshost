@@ -1,0 +1,18 @@
+GEM
+  remote: http://rubygems.org/
+  specs:
+    columnize (0.3.1)
+    json (1.4.6)
+    linecache (0.43)
+    ruby-debug (0.10.3)
+      columnize (>= 0.1)
+      ruby-debug-base (~> 0.10.3.0)
+    ruby-debug-base (0.10.3)
+      linecache (>= 0.3)
+
+PLATFORMS
+  ruby
+
+DEPENDENCIES
+  json
+  ruby-debug
