@@ -430,7 +430,7 @@ module Hipe
           puts "if this wasn't a dry run, you could restart apache with:"
           puts "  #{@path.apachectl} graceful"
           puts "and go to:"
-          puts "  http://#{host}/index.html"
+          puts "  http://#{host}.local/"
         end
         'done.'
       end
@@ -590,7 +590,7 @@ module Hipe
 
     class ApacheConfProxy
       include DryRunney
-      SitesEnabledRe = %r|^ *Include +([^\n]*sites-enabled/?) *$|m
+      SitesEnabledRe = %r|Include +([^\n]*sites-enabled/?)|m
       # code for pasring the file itself left behind in bf91c
       def initialize path
         @path = path
@@ -604,8 +604,10 @@ module Hipe
       # only one such entry in the file
       def sites_enabled_path
         arr = @contents.scan(SitesEnabledRe).map{|x| x[0]}
+        arr.flatten!
         case arr.length
           when 0:
+            raise arr.to_yaml
             `sudo bash -c 'sudo echo "" >> /etc/apache2/httpd.conf'`
             `sudo bash -c 'sudo echo "" >> /etc/apache2/httpd.conf'`
             `sudo bash -c 'sudo echo "Include /private/etc/apache2/sites-enabled/*.conf" >> /etc/apache2/httpd.conf'`
@@ -697,7 +699,9 @@ module Hipe
       def make_stub_site host
         @host = host
         if (doc_root_exists?)
-          raise Fail.new("already exists: #{doc_root}")
+          report << "#{host} directory exists"
+          return nil
+          # raise Fail.new("already exists: #{doc_root}")
         end
         report << "mkdir -m 755 #{doc_root}"
         FileUtils.mkdir(doc_root,:mode=>0755, :verbose=>false,:noop=>dry_run?)
@@ -743,7 +747,7 @@ module Hipe
         report.push "make backup: #{info.backed_up}"
         File.open(@path,'a+') do |fh|
           fh.seek(0,IO::SEEK_END)
-          fh.puts %{127.0.0.1 #{name}}
+          fh.puts %{127.0.0.1 #{name}.local}
           info.hostname = name
           info.ip = '127.0.0.1'
         end unless dry_run?
@@ -803,7 +807,7 @@ module Hipe
     HardCoded.vhost_stuff = Templatesimal[<<-END.gsub(/^ {6}/,'')
       <VirtualHost *:80>
         DocumentRoot "{{doc_root}}"
-        ServerName "{{host}}"
+        ServerName "{{host}}.local"
         <Directory "{{doc_root}}">
           AllowOverride All
           Allow from All
