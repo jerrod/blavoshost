@@ -432,7 +432,10 @@ module Hipe
           puts "and go to:"
           puts "  http://#{host}.local/"
         end
+        `sudo #{@path.apachectl} restart`
         `open http://#{host}.local/`
+        puts 'If this was a new directory, you will need to chown this back to your user.'
+        puts '   chown -R user:staff ~/Sites/directory'
         'done.'
       end
 
@@ -705,7 +708,7 @@ module Hipe
           # raise Fail.new("already exists: #{doc_root}")
         end
         report << "mkdir -m 755 #{doc_root}"
-        FileUtils.mkdir(doc_root,:mode=>0755, :verbose=>false,:noop=>dry_run?)
+        FileUtils.mkdir(doc_root, :mode=>0755, :verbose=>false,:noop=>dry_run?)
         index_html = File.join(doc_root,"index.html")
         my_new_homepage = HardCoded.web_page.clone
         my_new_homepage.title = host.gsub(/_|-/,' ')
