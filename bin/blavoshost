@@ -606,6 +606,8 @@ module Hipe
         arr = @contents.scan(SitesEnabledRe).map{|x| x[0]}
         case arr.length
           when 0:
+            `sudo bash -c 'sudo echo "" >> /etc/apache2/httpd.conf'`
+            `sudo bash -c 'sudo echo "" >> /etc/apache2/httpd.conf'`
             `sudo bash -c 'sudo echo "Include /private/etc/apache2/sites-enabled/*.conf" >> /etc/apache2/httpd.conf'`
             `sudo bash -c 'sudo mkdir /private/etc/apache2/sites-enabled '`
             return '/private/etc/apache2/sites-enabled/'
