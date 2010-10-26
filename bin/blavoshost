@@ -813,6 +813,7 @@ module Hipe
         DocumentRoot "{{doc_root}}"
         ServerName "{{host}}.local"
         <Directory "{{doc_root}}">
+          Options All
           AllowOverride All
           Allow from All
         </Directory>
