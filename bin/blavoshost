@@ -432,6 +432,7 @@ module Hipe
           puts "and go to:"
           puts "  http://#{host}.local/"
         end
+        `open http://#{host}.local/`
         'done.'
       end
 
