@@ -611,7 +611,6 @@ module Hipe
         arr.flatten!
         case arr.length
           when 0:
-            raise arr.to_yaml
             `sudo bash -c 'sudo echo "" >> /etc/apache2/httpd.conf'`
             `sudo bash -c 'sudo echo "" >> /etc/apache2/httpd.conf'`
             `sudo bash -c 'sudo echo "Include /private/etc/apache2/sites-enabled/*.conf" >> /etc/apache2/httpd.conf'`
