@@ -13,6 +13,7 @@ begin
     gem.authors = ["Jerrod Blavos"]
     gem.executables = ['blavoshost']
     gem.require_paths = ["bin"] # annoying requirement
+    gem.add_dependency('json')
   end
   Jeweler::GemcutterTasks.new
 rescue LoadError

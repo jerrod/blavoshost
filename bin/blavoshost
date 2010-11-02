@@ -8,7 +8,6 @@ require 'open3'
 require 'ostruct'
 require 'optparse'
 require 'fileutils'
-require 'ruby-debug'
 
 module Hipe
   module Vhost
@@ -809,9 +808,9 @@ module Hipe
 
     HardCoded.vhost_stuff = Templatesimal[<<-END.gsub(/^ {6}/,'')
       <VirtualHost *:80>
-        DocumentRoot "{{doc_root}}"
+        DocumentRoot "{{doc_root}}/public"
         ServerName "{{host}}.local"
-        <Directory "{{doc_root}}">
+        <Directory "{{doc_root}}/public">
           Options All
           AllowOverride All
           Allow from All
